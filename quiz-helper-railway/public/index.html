@@ -47,6 +47,12 @@
   #box:active { transform:scale(.96); }
   #box.fired { border-color:var(--ok); color:var(--ok); background:rgba(62,207,142,.15); }
   #popupMsg { margin-top:14px; font-size:13px; color:var(--muted); min-height:18px; }
+  .msgRow { display:flex; gap:8px; margin-top:16px; }
+  #msgText { flex:1; min-width:0; background:var(--bg); color:var(--text); border:1px solid var(--line);
+             border-radius:8px; padding:9px 10px; font-size:14px; }
+  #msgSend { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:9px 16px;
+             font-weight:600; cursor:pointer; }
+  #msgSend:active { transform:scale(.97); }
   .close { position:absolute; top:10px; right:14px; background:none; border:none; color:var(--muted);
            font-size:22px; cursor:pointer; }
 </style>
@@ -76,6 +82,10 @@
     <button class="close" id="closeBtn" aria-label="Close">×</button>
     <h2>Quiz Helper</h2>
     <div id="box">RUN</div>
+    <div class="msgRow">
+      <input id="msgText" type="text" maxlength="500" placeholder="Type a message…">
+      <button id="msgSend">Send</button>
+    </div>
     <div id="popupMsg"></div>
   </div>
 </div>
@@ -133,6 +143,27 @@
         : 'No device listening right now';
     } catch { popupMsg.textContent = 'Server offline'; }
   });
+
+  // Send text: every connected device blacks out and shows it for 2 seconds
+  const msgText = document.getElementById('msgText');
+  const msgSend = document.getElementById('msgSend');
+  async function sendMessage() {
+    const text = msgText.value.trim();
+    if (!text) { popupMsg.textContent = 'Type something first'; return; }
+    try {
+      const r = await fetch('/api/trigger', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, type: 'message', text })
+      });
+      const { sentTo } = await r.json();
+      popupMsg.textContent = sentTo > 0
+        ? 'Shown on ' + sentTo + (sentTo === 1 ? ' device' : ' devices')
+        : 'No device listening right now';
+      msgText.value = '';
+    } catch { popupMsg.textContent = 'Server offline'; }
+  }
+  msgSend.addEventListener('click', sendMessage);
+  msgText.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
 </script>
 </body>
 </html>
