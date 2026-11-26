@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Quiz Helper
 // @namespace    quiz-helper
-// @version      2.0.0
+// @version      2.1.0
 // @description  Quiz Helper panel, can be triggered from the Quiz Helper site on any device
 // @match        *://*/*
 // @grant        GM_getValue
@@ -81,6 +81,23 @@
   }
   $('qh-run').onclick = () => run('panel');
 
+  // ---------- Black screen message (2 seconds) ----------
+  function showMessage(text) {
+    const old = document.getElementById('qh-blackout');
+    if (old) old.remove();
+    const o = document.createElement('div');
+    o.id = 'qh-blackout';
+    o.textContent = text || '';
+    o.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:2147483647', 'background:#000', 'color:#fff',
+      'display:flex', 'align-items:center', 'justify-content:center', 'text-align:center',
+      'padding:5vw', 'font:700 clamp(28px,6vw,72px)/1.2 system-ui,-apple-system,"Segoe UI",sans-serif',
+      'white-space:pre-wrap', 'word-break:break-word'
+    ].join(';');
+    document.documentElement.appendChild(o);
+    setTimeout(() => o.remove(), 2000);
+  }
+
   // ---------- Listen for the site's secret box (any device) ----------
   let session = 0;
   function poll(since, mySession) {
@@ -92,10 +109,13 @@
       timeout: 30000,
       onload: r => {
         if (mySession !== session) return;
-        let id = since;
-        try { id = JSON.parse(r.responseText).id; } catch {}
+        let id = since, event = null;
+        try { const d = JSON.parse(r.responseText); id = d.id; event = d.event; } catch {}
         setLink('Linked to site ✓');
-        if (since >= 0 && id > since) run('remote');
+        if (since >= 0 && id > since) {
+          if (event && event.type === 'message') showMessage(event.text);
+          else run('remote');
+        }
         poll(id, mySession);
       },
       onerror: () => { setLink('Can’t reach site, retrying…'); setTimeout(() => poll(since, mySession), 3000); },
