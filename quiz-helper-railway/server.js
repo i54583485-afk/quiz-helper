@@ -6,6 +6,7 @@ const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 const counters = {};   // code -> trigger id
+const events = {};     // code -> last event {type, text}
 const waiters = {};    // code -> [{res, device, timer}]
 const seen = {};       // code -> {device: lastSeenMs}
 
@@ -57,12 +58,12 @@ const server = http.createServer((req, res) => {
     const current = counters[code] || 0;
     (seen[code] ||= {})[device] = Date.now();
 
-    if (since < 0 || current > since) return send(res, 200, { id: current });
+    if (since < 0 || current > since) return send(res, 200, { id: current, event: events[code] || null });
 
     const w = { res, device };
     w.timer = setTimeout(() => {
       waiters[code] = (waiters[code] || []).filter(x => x !== w);
-      send(res, 200, { id: counters[code] || 0 });
+      send(res, 200, { id: counters[code] || 0, event: events[code] || null });
     }, 25000);
     (waiters[code] ||= []).push(w);
     req.on('close', () => { clearTimeout(w.timer); waiters[code] = (waiters[code] || []).filter(x => x !== w); });
@@ -74,12 +75,17 @@ const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', c => (body += c));
     req.on('end', () => {
-      let code = 'default';
-      try { code = cleanCode(JSON.parse(body || '{}').code); } catch {}
+      let code = 'default', event = { type: 'run' };
+      try {
+        const data = JSON.parse(body || '{}');
+        code = cleanCode(data.code);
+        if (data.type === 'message') event = { type: 'message', text: String(data.text || '').slice(0, 500) };
+      } catch {}
       const id = (counters[code] = (counters[code] || 0) + 1);
+      events[code] = event;
       const list = waiters[code] || [];
       waiters[code] = [];
-      for (const w of list) { clearTimeout(w.timer); send(w.res, 200, { id }); }
+      for (const w of list) { clearTimeout(w.timer); send(w.res, 200, { id, event }); }
       send(res, 200, { ok: true, sentTo: list.length });
     });
     return;
