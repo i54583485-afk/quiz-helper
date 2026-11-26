@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiz Helper</title>
+<style>
+  :root { --bg:#0e1116; --card:#171b22; --line:#262c36; --text:#e8ecf2; --muted:#8a94a3; --accent:#4f8cff; --ok:#3ecf8e; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { min-height:100vh; background:var(--bg); color:var(--text);
+         font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+         display:flex; align-items:center; justify-content:center; padding:24px; }
+
+  .wrap { width:100%; max-width:520px; text-align:center; }
+  .badge { display:inline-block; font-size:13px; font-weight:600; letter-spacing:.3px;
+           color:var(--accent); background:rgba(79,140,255,.12); border:1px solid rgba(79,140,255,.35);
+           padding:6px 14px; border-radius:999px; margin-bottom:22px; transition:opacity .2s; }
+  .badge.hidden { opacity:0; pointer-events:none; }
+  h1 { font-size:34px; margin-bottom:10px; }
+  p.sub { color:var(--muted); line-height:1.5; margin-bottom:28px; }
+
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px; }
+  .install { display:inline-block; background:var(--accent); color:#fff; text-decoration:none;
+             font-weight:600; padding:13px 26px; border-radius:10px; transition:transform .1s, filter .15s; }
+  .install:hover { filter:brightness(1.1); }
+  .install:active { transform:scale(.98); }
+  .status { margin-top:16px; font-size:14px; color:var(--muted); }
+  .status.on { color:var(--ok); }
+  .steps { text-align:left; margin-top:22px; color:var(--muted); font-size:14px; line-height:1.7; padding-left:18px; }
+
+  /* Secret hotspot: invisible, always there, top-right corner */
+  #hotspot { position:fixed; top:0; right:0; width:max(64px,5vw); height:max(64px,5vw);
+             z-index:50; cursor:default; background:transparent; }
+
+  /* Secret popup */
+  #overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none;
+             align-items:center; justify-content:center; z-index:100; }
+  #overlay.open { display:flex; }
+  .popup { background:var(--card); border:1px solid var(--line); border-radius:16px;
+           padding:26px; width:min(90vw,320px); text-align:center; position:relative; }
+  .popup h2 { font-size:16px; margin-bottom:18px; color:var(--muted); font-weight:600; }
+  #box { width:150px; height:150px; margin:0 auto; border-radius:18px; border:2px solid var(--accent);
+         background:rgba(79,140,255,.12); cursor:pointer; display:flex; align-items:center;
+         justify-content:center; font-weight:700; font-size:15px; color:var(--accent);
+         transition:transform .1s, background .15s; user-select:none; }
+  #box:hover { background:rgba(79,140,255,.2); }
+  #box:active { transform:scale(.96); }
+  #box.fired { border-color:var(--ok); color:var(--ok); background:rgba(62,207,142,.15); }
+  #popupMsg { margin-top:14px; font-size:13px; color:var(--muted); min-height:18px; }
+  .close { position:absolute; top:10px; right:14px; background:none; border:none; color:var(--muted);
+           font-size:22px; cursor:pointer; }
+</style>
+</head>
+<body>
+
+<div id="hotspot" aria-hidden="true"></div>
+
+<div class="wrap">
+  <div class="badge" id="updateBadge">New update for Quiz Helper</div>
+  <h1>Quiz Helper</h1>
+  <p class="sub">Install the userscript with Tampermonkey on any device.</p>
+
+  <div class="card">
+    <a class="install" href="/quiz-helper.user.js">Install Quiz Helper</a>
+    <div class="status" id="status">No devices connected</div>
+    <ol class="steps">
+      <li>Install the <b>Tampermonkey</b> browser extension.</li>
+      <li>Click <b>Install Quiz Helper</b> above, then <b>Install</b> in Tampermonkey.</li>
+      <li>Open any page on that device. The status above turns green.</li>
+    </ol>
+  </div>
+</div>
+
+<div id="overlay">
+  <div class="popup">
+    <button class="close" id="closeBtn" aria-label="Close">×</button>
+    <h2>Quiz Helper</h2>
+    <div id="box">RUN</div>
+    <div id="popupMsg"></div>
+  </div>
+</div>
+
+<script>
+  const overlay  = document.getElementById('overlay');
+  const badge    = document.getElementById('updateBadge');
+  const box      = document.getElementById('box');
+  const popupMsg = document.getElementById('popupMsg');
+  const statusEl = document.getElementById('status');
+
+  function openPopup()  { overlay.classList.add('open');    badge.classList.add('hidden'); }
+  function closePopup() { overlay.classList.remove('open'); badge.classList.remove('hidden');
+                          box.classList.remove('fired'); box.textContent = 'RUN'; popupMsg.textContent = ''; }
+
+  // Secret corner opens the popup
+  document.getElementById('hotspot').addEventListener('click', openPopup);
+  document.getElementById('closeBtn').addEventListener('click', closePopup);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closePopup(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closePopup(); });
+
+  // Pair code: open the site as  yoursite.up.railway.app/?code=abc123  to use your own code
+  const params = new URLSearchParams(location.search);
+  let code = params.get('code') || localStorage.getItem('qhCode') || 'default';
+  try { localStorage.setItem('qhCode', code); } catch {}
+
+  // How many devices have the script running (any device, any page)
+  async function refreshStatus() {
+    try {
+      const r = await fetch('/api/status?code=' + encodeURIComponent(code), { cache: 'no-store' });
+      const { devices } = await r.json();
+      if (devices > 0) {
+        statusEl.textContent = '✓ ' + devices + (devices === 1 ? ' device' : ' devices') + ' connected';
+        statusEl.classList.add('on');
+      } else {
+        statusEl.textContent = 'No devices connected';
+        statusEl.classList.remove('on');
+      }
+    } catch { statusEl.textContent = 'Server offline'; statusEl.classList.remove('on'); }
+  }
+  refreshStatus();
+  setInterval(refreshStatus, 3000);
+
+  // Clicking the box triggers the script on every connected device instantly
+  box.addEventListener('click', async () => {
+    try {
+      const r = await fetch('/api/trigger', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+      const { sentTo } = await r.json();
+      box.classList.add('fired'); box.textContent = 'SENT';
+      popupMsg.textContent = sentTo > 0
+        ? 'Sent to ' + sentTo + (sentTo === 1 ? ' device' : ' devices')
+        : 'No device listening right now';
+    } catch { popupMsg.textContent = 'Server offline'; }
+  });
+</script>
+</body>
+</html>
